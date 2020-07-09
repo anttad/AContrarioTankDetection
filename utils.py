@@ -31,6 +31,22 @@ le seuil doit être inférieur à 1 (égalité pour les cercles parfaits)
 
 
 def get_list_of_edge(txt,closed=True):
+    """
+    Load list of edges
+
+    Parameters
+    ----------
+    txt : str
+        Path to list of edges.
+    closed : Bool, optional
+        Set to True to keep only closed segment. The default is True.
+
+    Returns
+    -------
+    list
+        list of segment.
+
+    """
     coord = np.loadtxt(txt)
     if len(coord.shape)==1:
         return None
@@ -71,8 +87,6 @@ def bottomhat(im_np):
     return np.max(bottomhat_np, axis=0)
 
 
-def get_other_version(im_name,version='th'):
-    return im_name[:-5]+'_{}.png'.format(version)
 
 
 
@@ -82,10 +96,21 @@ def read_json(json_file):
     
     return data
 
-"""
-Place les pixels de l'image sur l'interval 0-255
-"""
 def to_255_pxl(img):
+    """
+    Return an image with pixel in [0,255]
+
+    Parameters
+    ----------
+    img : numpy array
+        Input image.
+
+    Returns
+    -------
+    numpy array
+        Output image.
+
+    """
     """
     Retourne une image dont les pixels sont entre 0 et 255
     """
@@ -94,36 +119,69 @@ def to_255_pxl(img):
 
 
 
-"""
-Formule pour calculer l'air d'un polygone connaissant les coordonnées de ses sommets. "shoelace forumula"
-"""
 def PolyArea(x,y):
+    """
+    Computing area using shoalace formula
+
+    Parameters
+    ----------
+    x : numpy array
+        List of x coordinates.
+    y : numpy array
+        List of y coordinates.
+
+    Returns
+    -------
+    float
+        Area of a closed segment.
+
+    """
     return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
 
 
 
-"""
-Formule pour calculer l'air d'un polygone connaissant les coordonnées de ses sommets. "shoelace forumula"
-"""
 def PolyPerimeter(coord):
+    """
+    Compute perimeter
+
+    Parameters
+    ----------
+    coord : numpy array
+        List of edge point coordinate.
+
+    Returns
+    -------
+    p : float
+        Perimeter.
+
+    """
     coord_roll = np.roll(coord,shift=1, axis=0)
     p = np.sum(np.sqrt(np.sum((coord - coord_roll)**2,axis=1)))
     return p
 
 
 
-"""
-determine si un segment de contours est fermé 
-"""
+
+
 def is_closed(segment): 
 
-   x_o, y_o = segment[0,:] 
-   x_f, y_f = segment[-1,:] 
-   
-   if (x_o == x_f) and (y_o == y_f):
-       return True
-   else: 
-       return False
+    """
+    segment: numpy array
+        a detected edge segment.
+    
+    Returns
+    -------
+     Bool
+          True if the segment is closed, False if not.
+    """
+    x_o, y_o = segment[0,:] 
+    x_f, y_f = segment[-1,:] 
+    
+    if (x_o == x_f) and (y_o == y_f):
+        return True
+    else: 
+        return False
+    
    
 
 def select_circles(list_of_edge,threshold=0.8):
@@ -234,96 +292,7 @@ def centers2mask(centers,size):
     
     return mask
 
-def create_folders(res_folder):
-    
-    try :
-        os.mkdir(res_folder)
-    except :    
-        pass
-    
-    
-    res_edges_path = os.path.join(res_folder,"edges")
-    
-    try :
-        os.mkdir(res_edges_path)
-    except :    
-        pass
-    
-    res_out_path = os.path.join(res_folder,"output")
-    res_in_path = os.path.join(res_folder,"input")
-    res_svg_tanks_path = os.path.join(res_folder,"output_svg_tanks")
-    res_svg_path = os.path.join(res_folder,"output_svg")
-    res_svg_clusters_path = os.path.join(res_folder,"output_svg_clusters")
-    edges_path = "/home/antoine/Documents/THESE_CMLA/Images/Training_sample/edges"
-    
-    
-    try :
-        os.mkdir(res_edges_path)
-    except :    
-        pass
-    
-    edge_name_list = os.listdir(res_edges_path)
-    
-    try :
-        os.mkdir(res_folder)
-    except :    
-        pass
-    
-    try :
-        os.mkdir(res_svg_tanks_path)
-    except :    
-        pass
-    
-    try :
-        os.mkdir(res_svg_path)
-    except :    
-        pass
-    
-    try :
-        os.mkdir(res_svg_clusters_path)
-    except :    
-        pass
-    
-    try :
-        os.mkdir(pgm_path)
-    except :    
-        pass
-    try :
-        os.mkdir(res_in_path)
-    except :    
-        pass
-    try :
-        os.mkdir(res_out_path)
-    except :    
-        pass
-    try :
-        os.mkdir(edges_path)
-    except :    
-        pass
-        
-def create_edges(name,devernay,res_edges_path,res_in_path,pgm_path="/home/antoine/Documents/THESE_CMLA/Images/Training_sample/pgm_images"):
-    
-    
-    std = 0
-    l_th = 5
-    h_th = 15
-    th_iso = 0.9
-    
-    from shutil import copy2
-    edge_name_list = os.listdir(res_edges_path)
-    
-    if name+'.txt' not in edge_name_list:
-        im_path = os.path.join(pgm_path,name+'.pgm')
-        copy2(im_path, res_in_path)        
-        edges_path = "/home/antoine/Documents/THESE_CMLA/Images/Training_sample/edges"
-        text_file = os.path.join(edges_path,name+'.txt')
-        result_png = os.path.join(res_edges_path,name+'.png')
-        result_pkl = os.path.join(res_edges_path,name+'.pkl')
-        result_pdf = os.path.join(res_edges_path,name+'.pdf')
-    #    result_svg = os.path.join(res_edges_path,name+'.svg')
-        os.system('{} {} -p {} -t {} -s {} -l {} -h {} -w 0.5 '.format(devernay,im_path,result_pdf,text_file, std, l_th,h_th))
-    print("{} Edge computed".format(name))
-    
+
     
     
     

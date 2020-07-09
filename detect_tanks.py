@@ -13,6 +13,7 @@ from skimage.transform import hough_circle, hough_circle_peaks,hough_ellipse
 from skimage.feature import canny
 from skimage.draw import circle_perimeter, rectangle_perimeter,rectangle,circle, polygon_perimeter
 from skimage.util import img_as_ubyte
+from skimage.filters import threshold_otsu
 
 from skimage.morphology import binary_closing, binary_dilation
 from skimage.morphology import square
@@ -36,6 +37,23 @@ from time import time
 
 
 def fftzoom(img, factor=2):
+    """
+    Apply fftzoom.
+    
+    Parameters
+    
+    ----------
+    img : numpy array
+        Input image.
+    factor : int , optional
+        zoom factor. The default is 2.
+        
+    Returns
+    -------
+    res : numpy array
+        zoomed image
+        
+    """
     
     if len(img.shape) == 2:
         nrow,ncol = img.shape
@@ -66,61 +84,7 @@ def fftzoom(img, factor=2):
     return res
 
 
-"""
-A partir d'une liste de edge point obtenu par l'algorithme canny-devernay, renvoie
-l'image binaire des contours
-"""
-def get_edge_map(txt,im_dim, width):
-    
-    coord = np.loadtxt(txt)
-    coord = coord[coord[:,0]!=-1,:] # on élimine la délimitation
-    A = np.uint(np.round(coord/width)) # on augmente la valeur des coordonnées par 2 et on arrondie pour pouvoir les plascer
-    
-    new_dim = ( int(im_dim[0]/width), int(im_dim[1]/width))
-    edge_map = np.zeros(new_dim)
-   
-    y,x= tuple(A.T) # corrige l'inversion des coordonnées x et y
-    edge_map[(x,y)]=1
-    
-    return edge_map
 
-
-
-"""
-determine si un segment de contours est fermé 
-"""
-def is_closed(segment): 
-
-   x_o, y_o = segment[0,:] 
-   x_f, y_f = segment[-1,:] 
-   
-   if (x_o == x_f) and (y_o == y_f):
-       return True
-   else: 
-       return False
-    
-"""
-renvoie la liste des contours fermés
-"""
-def get_closed_contour_map(txt,im_dim, width):
-    
-    coord = np.loadtxt(txt)/width 
-    list_of_segment = np.split(coord,np.argwhere(coord[:,0]<0).reshape(-1))
-    list_of_segment = [x[1:,:] if x[0,0] <0 else x for x in list_of_segment[:-1]] # le dernier terme de la liste ne sert à rien
-    
-    
-    closed_edge_list = [ np.uint(np.round(segment)) for segment in list_of_segment if is_closed(segment)]
-    #coord = coord[coord[:,0]!=-1,:] # on élimine la délimitation
-    # on augmente la valeur des coordonnées par 2 et on arrondie pour pouvoir les placer
-    # découpage des segments de contours
-    new_dim = ( int(im_dim[0]/width), int(im_dim[1]/width))
-    
-    edge_map = np.zeros(new_dim)
-    
-    for seg in closed_edge_list:
-        y,x= tuple(seg.T) # corrige l'inversion des coordonnées x et y
-        edge_map[(x,y)]=1
-    return edge_map
         
 
 def computelogNFA( N,k,sigma,Ntest=2500):
@@ -133,29 +97,40 @@ def computelogNFA( N,k,sigma,Ntest=2500):
 
             
 
-def delete_edges():
-    path='/home/antoine/Documents/THESE_CMLA/TankDetection/tanks'
-    for tank in os.listdir(path):
-        tank_path = os.path.join(path,tank)
-        if "edges" in os.listdir(tank_path):
-            edge_path = os.path.join(tank_path,"edges")
-            os.system('rm -r {}'.format(edge_path))
-        
 
 #    edge_listdir
 
-def channel_reduction_pca(img,stretch_dyn=True):
+def channel_reduction_pca(img,stretch_dyn=False,dtype='uint16'):
+    """
+    
+    Get greyscale image via pca reduction.
+    
+    Parameters
+    ----------
+    img : numpy array
+        Image with all its channels.
+    stretch_dyn : Bool, optional
+        Set to True to improve contrast. The default is True.
+        
+    Returns
+    -------
+    new_img : numpy array
+        Greyscale image.
+    
+    """
     pca = PCA(n_components=1)
     
     chan_list = [img[:,:,i].flatten() for i in range(img.shape[-1])]
     chan_arr = np.array(chan_list).T
     new_img= pca.fit_transform(chan_arr).reshape(img.shape[0],img.shape[1])
+    print('new_img range:', new_img.min(), new_img.max())
+    new_img -= new_img.min()
     if stretch_dyn : 
-        
-        if img.dtype=='uint16':
+        if dtype=='uint16':
             new_img = np.uint16(np.round(normalize(new_img)*(2**16 -1)))
-        elif img.dtype == 'uint8':
+        elif dtype == 'uint8':
             new_img = np.uint16(np.round(normalize(new_img)*(2**8 -1)))
+    print('new_img range:', new_img.min(), new_img.max())
     return new_img
     
     
@@ -164,7 +139,28 @@ def normalize(img):
     
     return (img - img.min())/(img.max() - img.min()+0.01)
 
+
 def img_dyn_enhancement(img,q_inf=1,q_sup=99,bit_16=True):
+    
+    """
+    Enhance image dynamique.
+    
+    Parameters
+    ----------
+    img : numpy array
+        Input image.
+    q_inf : int, optional
+        Lower percentile. The default is 1.
+    q_sup : int, optional
+        Higest percentile. The default is 99.
+    bit_16 : Bool, optional
+        Set to True if you want the output to be a 16 bit image. The default is True.
+        
+    Returns
+    -------
+    img : numpy array
+        enhance image.
+    """
     
     if len(img.shape)==3:
         for i in range(img.shape[-1]):
@@ -177,12 +173,30 @@ def img_dyn_enhancement(img,q_inf=1,q_sup=99,bit_16=True):
         else : 
             img = np.uint8((2**8-1)*img)
     return img
-#%% test 
+ 
             
 def process_clustering(centers, labels,epsilon=1):
+    
     """
-    tanks: liste de coordonnées des centres des clusters
-    labels : mask avec des clusters labelés
+    Process the clusters obtained through binary dilations
+    
+    Parameters
+    ----------
+    centers : list of 2D tuples.
+        List of the centers of detected circles.
+    labels : numpy array
+        Cluster labels as an image.
+    epsilon : float, optional
+        NFA threshold. The default is 1.
+        
+    Returns
+    -------
+    clusters_list: list 
+        List of clusters considered as meaningful in the a contrario framework
+        
+    nfa_list: list
+        list of NFA associated with each clusters
+    
     """
     log_eps = -np.log(epsilon)
     N = len(centers) #number of detected circles
@@ -235,6 +249,32 @@ def process_clustering(centers, labels,epsilon=1):
             
         
 def multiple_clusering(mask,circles,min_rad=1,max_rad=10, epsilon=1):
+    
+    """
+    Run the clustering on multiple binary dilation radii.
+    
+    Parameters
+    ----------
+    mask : numpy array
+        Mask of circles detection.
+    circles : list
+        List of circles centers coordinates.
+    min_rad : int, optional
+        Smallest radius. The default is 1.
+    max_rad : int, optional
+        Biggest radius. The default is 10.
+    epsilon : float, optional
+        NFA threshold. The default is 1.
+        
+    Returns
+    -------
+    clusters : list
+        list of clusters.
+    nfa_list : list
+        list of NFA.
+        
+    """
+    
     clusters = []
     nfa_list=[]
     for rad in range(min_rad,max_rad):
@@ -248,6 +288,26 @@ def multiple_clusering(mask,circles,min_rad=1,max_rad=10, epsilon=1):
 
 
 def cluster_filtering(clusters,circles, nfa_list,epsilon=1):
+    
+    """
+    Apply the exclusion princple for the overlapping clusters.
+    
+    Parameters
+    ----------
+    clusters : list 
+        list of clusters.
+    circles : list
+        list of circle centers coordinates.
+    nfa_list : list
+        List of NFA measure for the clusters.
+    epsilon : float, optional
+        NFA threshold. The default is 1.
+    
+    Returns
+    -------
+    clusters : list
+        list of selected clusters.
+    """
     
     log_eps = -np.log(epsilon)
     if len(clusters)<=1:
@@ -306,20 +366,51 @@ def cluster_filtering(clusters,circles, nfa_list,epsilon=1):
     
     
 #def detect_tanks(im_path, meta_tif=None, save_res_img=False):
-def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, save_res_img=False,iso_th=0.9,low=400,high=700,zoom=False,fold_path='./'):    
-    """
-    im_path : absolute path to a tif image with bands B02, B03, B04, B08
-    meta_tif : optional tif image with available meta_data (if the one in im_path are absent)
-    save_res_img : save the result image if set to True
+def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, save_res_img=False,iso_th=0.9,low=400,high=700,zoom=False,fold_path='./',auto_th=False):    
     
-    Output:
-        json file: a json file/python dict where the keys correspond to a cluster and the value to a dict 
-        with the coordinates of the top left and bottom right corner of the bounding box.
-        
-        The saved files are in a folder named "res_[image name]"
     """
+    Run tank detection on a the B02, B03, B04, and B08 channels of a Sentinel-2 image.
+    
+    Parameters
+    ----------
+    B02 : str
+        Path to B02 file.
+    B03 : str
+        Path to B03 file.
+    B04 : str
+        Path to B04 file.
+    B08 : str
+        Path to B08 file.
+        
+    window_x0 : int, optional
+        Window of the crop. The default is 0.
+    window_y0 : int, optional
+        Window of the crop. The default is 0.
+    w : int, optional
+        image width. The default is 1000.
+    h : int, optional
+        Image height. The default is 1000.
+    save_res_img : Bool, optional
+        Set to True to save the output as images. The default is False.
+    iso_th : float, optional
+        Isoperimetric threshold (between 0 and 1). The default is 0.9.
+    low : int, optional
+        Low threshold from Canny-Devernay's method. The default is 400.
+    high : int, optional
+        High threshold from Canny-Devernay's method. The default is 700.
+    zoom : Bool, optional
+        Set to True to apply fftzoom. The default is False.
+    fold_path : str, optional
+        Path to the folder where to store the results. The default is './'.
+    
+    Returns
+    -------
+    None.
+    """
+    
+    
     process_time = time()
-    c_path = "./C_exe"
+    c_path = "./build"
     devernay = os.path.join(c_path,"devernay")
     
     if zoom:
@@ -332,7 +423,7 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
     #res_folder = os.path.join('/home/l.carvalho/data/tanks_filipinas')
 #    par_res_fold = "/home/antoine/Documents/Lucas_Code/tank_detection_pipeline/TankDetection/res_iso_{}_l_{}_h_{}_zoom_{}".format(iso_th,low,high,zoom)
 #    par_res_folder = '/home/l.carvalho/data/tanks_filipinas/res_iso_{}_l_{}_h_{}_zoom_{}'.format(iso_th,low,high,zoom)
-    fold_name = "res_iso_{}_l_{}_h_{}_zoom_{}".format(iso_th,low,high,zoom)
+    fold_name = "res_iso_{}_l_{}_h_{}_zoom_{}_auto_th_{}".format(iso_th,low,high,zoom,auto_th)
     par_res_fold = os.path.join(fold_path,fold_name)
     os.system('mkdir {}'.format(par_res_fold))
     res_folder = os.path.join(par_res_fold,im_name)
@@ -342,8 +433,8 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
         print('folder already exist')
     #os.system('mkdir {}'.format(res_folder))
     
-    if os.path.exists(os.path.join(res_folder, im_name+'_pca.tif')):
-        return
+    #if os.path.exists(os.path.join(res_folder, im_name+'_pca.tif')):
+        
 
     #img=skimage.io.imread(im_path)
     print('b02: ', B02, 'w: ', window_x0, 'h: ', window_y0)
@@ -363,14 +454,14 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
         return
     w_aux, h_aux = b02_img.shape
     img = np.zeros((w_aux, h_aux, 4))
-    img[:,:,0] = b02_img
+    img[:,:,2] = b02_img
     img[:,:,1] = b03_img
-    img[:,:,2] = b04_img
+    img[:,:,0] = b04_img
     img[:,:,3] = b08_img
-    
+    print("img dtype",b02_img.dtype)
     print("PCA reduction...")
     pca_time = time()
-    img_pca = channel_reduction_pca(img)
+    img_pca = channel_reduction_pca(img,dtype=b02_img.dtype)
     if zoom:
         print("fft zoom...")
         zoom_time=time()
@@ -398,6 +489,13 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
     pdf_file= im_name+'_pca_detection.pdf'
     pdf = os.path.join(edge_folder,pdf_file)
     
+    if auto_th:
+        nbins=len(np.unique(img_pca.flatten()).tolist())
+        print('nbins: ', nbins)
+        high = min((threshold_otsu(img_pca,nbins),np.quantile(img_pca,0.35)))
+        low = 0.5*high
+
+
     os.system("{} {}  -l {} -h {} -p {} -t {}".format(devernay, im_pca_path, low, high, pdf, txt)) 
 #    os.system("./my_processing2.sh {} {} {} {}".format(im_pca_path,edge_folder, low, high)) 
     #circles = []
@@ -410,6 +508,8 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
     print('edge_folder: ', edge_folder)
     print('im_name: ', im_name)
     print('txt', txt)
+    print('auto_th: ', auto_th)
+    print('low_th, high_th: ', low,high)
     print('             ')
     print('             ')
     
@@ -421,12 +521,7 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
     
     if save_res_img:
         seg_iso_per_rat = compute_iso_ratio(list_of_edges)
-#    skimage.io.imsave(os.path.join(edge_folder,"B04.tif"),b04_img)
-#    skimage.io.imsave(os.path.join(edge_folder,"B02.tif"),b03_img)
-#    skimage.io.imsave(os.path.join(edge_folder,"B03.tif"),b02_img)
-#    skimage.io.imsave(os.path.join(edge_folder,"B08.tif"),b08_img)
-#    print("circle detected !")
-            
+
 
     im_dim = (img_pca.shape[0], img_pca.shape[1])
     output_shape=(img_pca.shape[0], img_pca.shape[1], 3)
@@ -507,82 +602,4 @@ def detect_tanks(B02, B03, B04, B08, window_x0=0, window_y0=0, w=1000, h=1000, s
                 output_pol[rx,ry] = (255,0,0)
 #            
         skimage.io.imsave(os.path.join(output_pol_fold,im_name+'.png'), np.uint8(output_pol))
-        print()
-#        return end_process_time
-#%% test 
 
-#import matplotlib.pyplot as plt
-
-#if __name__ == '__main__':
-#    
-#    root_path = '/home/antoine/Documents/THESE_CMLA/TankDetection/'
-#    tanks_path = os.path.join(root_path,"tanks")
-#    tif_with_meta = "/home/antoine/Documents/THESE_CMLA/TankDetection/tanks/test_araucaria_17/2019-06-04_S2A_orbit_038_tile_22JFS_L1C_band_B02.tif"
-#
-#    
-#    
-##    txt_path = os.path.join(test_path,'tanks.txt')
-##    pdf_path = os.path.join(test_path,'tanks.pdf')
-#    
-#    tank = np.random.choice(os.listdir(tanks_path))
-#    tank = "test_araucaria_17"
-#    tank_folder = os.path.join(tanks_path,tank)
-#    
-##    channel_list = [skimage.io.imread(os.path.join(tank_folder,im_file)) for im_file in os.listdir(tank_folder) if im_file.endswith('.tif')]
-##    full_img = np.stack(channel_list,axis=2)
-#    
-##    skimage.io.imsave(os.path.join(tank_folder,'fullband.tif'),full_img)
-#    
-#    img=skimage.io.imread(os.path.join(tank_folder,'fullband.tif'))
-#    
-#    detect_tanks(os.path.join(tank_folder,'fullband.tif'),meta_tif=tif_with_meta,save_res_img=True )
-
-
-    
-
-#%%
-
-if __name__ == '__main__':
-#    import argparse
-    import os
-    import glob
-    import detect_tanks as dt
-    import rasterio
-    import multiprocessing
-    
-    #from __future__ import print_function
-    
-    import sys
-    import multiprocessing
-    import multiprocessing.pool
-    import traceback
-    
-    folder = "/home/antoine/Documents/Lucas_Code/tank_detection_pipeline/single_test"
-    iso_th = 0.9
-    nb_workers=multiprocessing.cpu_count()
-    
-    files = glob.glob(os.path.join(folder, '*.jp2'))
-    
-    file_by_date = {}
-    
-    for f in files:
-        key = os.path.basename(f)[:-8]
-        if key in file_by_date.keys():
-            file_by_date[key] = file_by_date[key] + [f]
-        else:
-            file_by_date[key] = [f]
-    for lista in list(file_by_date.values()):
-        if len(lista) == 4:
-            with rasterio.open(lista[0]) as src:
-                w = src.width
-                h = src.height
-                print('w: ', w)
-                print('h: ', h)
-                for x_left in range(0, w, 1000):
-                    for y_left in range(0, h, 1000):
-                        B02 = lista[0][:-8]+'_B02.jp2'
-                        B03 = lista[0][:-8]+'_B03.jp2'
-                        B04 = lista[0][:-8]+'_B04.jp2'
-                        B08 = lista[0][:-8]+'_B08.jp2'
-                        dt.detect_tanks(B02, B03, B04, B08, x_left, y_left, 1000, 1000, iso_th=iso_th)
-        
